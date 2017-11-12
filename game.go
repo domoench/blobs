@@ -20,6 +20,19 @@ const (
 	mapHeight = 50
 )
 
+// UTILITIES
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// inMap returns true if the point is within the map's boundaries
+func inMap(p point) bool {
+	return p.x >= 0 && p.x < mapWidth && p.y >= 0 && p.y < mapHeight
+}
+
 type player struct {
 	name   string
 	symbol rune // Player's blob symbol
@@ -96,6 +109,7 @@ type blob struct {
 	// TODO add unique ID (for recognizing blob merges)
 	points   pointset
 	boundary pointset // A set of cells that form the boundary to the set of cells exterior to this blob
+	// The boundary set of points are candidates for blob expansion
 	overlord *player
 }
 
@@ -111,14 +125,7 @@ func (b *blob) add(p point) {
 	// TODO Handle blob merges (same owner, diff blob)
 	adj := adjPoints(p)
 	for _, adjPoint := range adj {
-		pointOwner := g.memberOf(adjPoint)
-		gameLog.Debug("adj",
-			"point", p,
-			"adjPoint", adjPoint,
-			"blob", b,
-			"adjBlob", pointOwner,
-		)
-		if g.memberOf(adjPoint) != b {
+		if g.memberOf(adjPoint) != b && inMap(adjPoint) {
 			b.boundary.add(adjPoint)
 		}
 	}
@@ -155,7 +162,7 @@ func newGame() *game {
 	g.addPlayer("david", 'B', point{0, 0})
 
 	// Start players with random blob seeds
-	blobsPerPlayer := 1
+	blobsPerPlayer := 2
 	for _, p := range g.players {
 		// TODO: Random walk generate the blobs
 		for i := 0; i < blobsPerPlayer; i++ {
@@ -168,7 +175,6 @@ func newGame() *game {
 
 // memberOf returns a reference to the blob this point belongs to, nil if unowned
 func (g *game) memberOf(p point) *blob {
-	gameLog.Debug("memberOf()")
 	for _, pl := range g.players {
 		for _, b := range pl.blobs {
 			if b.points.contains(p) {
@@ -187,15 +193,18 @@ func (g *game) update() {
 	// Calculate blob growth
 	for _, pl := range g.players {
 		for _, b := range pl.blobs {
+			mass := len(b.points)
 			boundaryPoints := []point{}
 			for p := range b.boundary {
 				boundaryPoints = append(boundaryPoints, p)
 			}
 
 			// expand the blob into one of its boundary cells
-			p := boundaryPoints[rand.Intn(len(boundaryPoints))]
-			b.boundary.remove(p)
-			b.add(p)
+			for i := 0; i < max(1, mass/3); i++ {
+				p := boundaryPoints[rand.Intn(len(boundaryPoints))]
+				b.boundary.remove(p)
+				b.add(p)
+			}
 		}
 	}
 }

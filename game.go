@@ -8,6 +8,7 @@ import (
 
 	"github.com/mgutz/logxi/v1"
 	"github.com/nsf/termbox-go"
+	uuid "github.com/satori/go.uuid"
 )
 
 // TODO
@@ -16,13 +17,20 @@ import (
 var gameLog log.Logger
 
 const (
-	mapWidth  = 80
-	mapHeight = 50
+	mapWidth  = 70
+	mapHeight = 40
 )
 
 // UTILITIES
 func max(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b
@@ -36,7 +44,8 @@ func inMap(p point) bool {
 type player struct {
 	name   string
 	symbol rune // Player's blob symbol
-	blobs  []*blob
+	color  termbox.Attribute
+	blobs  map[string]*blob // ID => blob lookup
 	g      *game
 	point
 }
@@ -106,10 +115,9 @@ func adjPoints(p point) []point {
 }
 
 type blob struct {
-	// TODO add unique ID (for recognizing blob merges)
+	id       string // TODO Perhaps we don't need an id after all
 	points   pointset
-	boundary pointset // A set of cells that form the boundary to the set of cells exterior to this blob
-	// The boundary set of points are candidates for blob expansion
+	boundary pointset // A set of cells that form the boundary to the set of cells exterior to this blob. Current candidates for expansion.
 	overlord *player
 }
 
@@ -122,11 +130,32 @@ func (b *blob) add(p point) {
 	g := b.overlord.g
 
 	// recalculate boundary set
-	// TODO Handle blob merges (same owner, diff blob)
+	// Cases for adj points:
+	//   1. Are empty => Add point to boundary
+	//   2. Belongs to the same owner
+	// 		A. Belongs to blob b => Do nothing
+	//		B. Belongs to another blob with the same owner => merge the blobs
+	//   3. Belong to another player => For now, do nothing. They aren't part of expansion boundary.
 	adj := adjPoints(p)
 	for _, adjPoint := range adj {
-		if g.memberOf(adjPoint) != b && inMap(adjPoint) {
-			b.boundary.add(adjPoint)
+		if inMap(adjPoint) {
+			adjBlob := g.memberOf(adjPoint)
+			if adjBlob == nil {
+				b.boundary.add(adjPoint)
+			} else if adjBlob.overlord == b.overlord && adjBlob != b { // same owner, diff blob
+				pl := b.overlord
+				gameLog.Debug("Blob collision!", "pos", p, "overlord", pl.name)
+
+				// Merge
+				// copy adjacent blob's points and boundary into this blob
+				for pt, _ := range adjBlob.points {
+					b.points.add(pt)
+				}
+				for pt, _ := range adjBlob.boundary {
+					b.boundary.add(pt)
+				}
+				pl.removeBlob(adjBlob.id)
+			}
 		}
 	}
 }
@@ -139,18 +168,26 @@ type game struct {
 
 // addBlob starts a blob at the given point
 func (pl *player) addBlob(p point) {
+	blobID := uuid.NewV4().String()
 	b := &blob{
+		id:       blobID,
 		points:   newPointSet(),
 		boundary: newPointSet(),
 		overlord: pl,
 	}
-	pl.blobs = append(pl.blobs, b)
+	pl.blobs[blobID] = b
 	b.add(p)
 }
 
+// removeBlob removes the blob with the given ID
+func (pl *player) removeBlob(id string) {
+	delete(pl.blobs, id)
+}
+
 // addPlayer adds a new player (with no blobs) to the game
-func (g *game) addPlayer(name string, symbol rune, start point) {
-	p := &player{name: name, symbol: symbol, g: g, point: start}
+func (g *game) addPlayer(name string, symbol rune, color termbox.Attribute, start point) {
+	b := make(map[string]*blob)
+	p := &player{name: name, symbol: symbol, color: color, blobs: b, g: g, point: start}
 	g.players = append(g.players, p)
 }
 
@@ -159,7 +196,8 @@ func newGame() *game {
 	gameLog.Info("initializing new game...")
 
 	g := game{input: newInput()}
-	g.addPlayer("david", 'B', point{0, 0})
+	g.addPlayer("david", 'B', termbox.ColorGreen, point{0, 0})
+	g.addPlayer("enemy", 'T', termbox.ColorBlue, point{20, 20})
 
 	// Start players with random blob seeds
 	blobsPerPlayer := 2
@@ -200,8 +238,13 @@ func (g *game) update() {
 			}
 
 			// expand the blob into one of its boundary cells
-			for i := 0; i < max(1, mass/3); i++ {
-				p := boundaryPoints[rand.Intn(len(boundaryPoints))]
+			numExpand := min(len(boundaryPoints), max(1, mass/3))
+			if numExpand == 0 {
+				gameLog.Debug("No boundary points to expand into", "player", pl.name)
+			}
+			for i := 0; i < numExpand; i++ {
+				index := rand.Intn(max(1, len(boundaryPoints)))
+				p := boundaryPoints[index]
 				b.boundary.remove(p)
 				b.add(p)
 			}
@@ -222,23 +265,24 @@ func (g *game) draw() {
 
 	// Draw blobs into back buffer
 	for _, p := range g.players {
-		for i, b := range p.blobs {
+		gameLog.Debug("drawing blobs", "blobs", len(p.blobs))
+		for _, b := range p.blobs {
 			// TODO b.draw()?
-			gameLog.Debug(fmt.Sprintf("drawing blob %d", i), "mass", len(b.points))
 			for c, _ := range b.points {
-				termbox.SetCell(c.x, c.y, b.overlord.symbol, termbox.ColorWhite, termbox.ColorGreen)
+				termbox.SetCell(c.x, c.y, b.overlord.symbol, termbox.ColorWhite, p.color)
 			}
 
 			// Draw boundaries
-			for c, _ := range b.boundary {
-				termbox.SetCell(c.x, c.y, '*', termbox.ColorWhite, termbox.ColorRed)
-			}
+			/*
+				for c, _ := range b.boundary {
+					termbox.SetCell(c.x, c.y, '*', termbox.ColorWhite, termbox.ColorRed)
+				}
+			*/
 		}
 	}
 
 	// Draw player into back buffer
 	pl := g.players[0] // TODO
-	gameLog.Debug("drawing player", "pos", pl.point)
 	termbox.SetCell(pl.x, pl.y, '@', termbox.ColorWhite, termbox.ColorBlack)
 
 	termbox.Flush()

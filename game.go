@@ -19,7 +19,7 @@ func init() {
 }
 
 const (
-	nonEmptyWeight = 0.7
+	nonEmptyWeight = 0.95
 )
 
 // UTILITIES
@@ -123,22 +123,21 @@ func (bm blobMap) clear() {
 
 // addPlayer adds a new player (with no blobs) to the game
 func (g *game) addPlayer(name string, symbol rune, color termbox.Attribute, x, y int) {
-	//b := make(map[string]*blob)
 	p := &player{
 		name:   name,
 		symbol: symbol,
 		color:  color,
-		//blobs: b,
-		g: g,
-		x: x,
-		y: y}
+		g:      g,
+		x:      x,
+		y:      y,
+	}
 	g.players = append(g.players, p)
 
 	playerNames := make([]string, len(g.players))
 	for i := range g.players {
 		playerNames[i] = g.players[i].name
 	}
-	gameLog.Debug("player added", "players", playerNames)
+	gameLog.Debug("player added", "player", name, "players", playerNames)
 }
 
 // newGame initializes the game's state
@@ -177,6 +176,7 @@ func newGame() *game {
 func (g *game) update() {
 
 	// Determine what the next map should be based on the current one's cell interactions
+	// TODO multithread this if you hit a bottleneck
 	for x := range g.curr {
 		for y := range g.curr[x] {
 			adj := adjacent(g, x, y)
@@ -204,6 +204,12 @@ func adjString(adj []*player) []string {
 // slice. x should be a randomly generated float between [0,1), which will be
 // used as the dice roll.
 func next(g *game, adj []*player, x float64) *player {
+	// Always have 60% chance of not changing at all
+	f := rand.Float64()
+	if f >= 0 && f < 0.90 {
+		return adj[CENTER]
+	}
+
 	// TODO wasteful to allocate these data structs on every call, they're reusable
 	// To count the number of adjacent cells owned by each player.
 	count := make([]float64, len(g.players))
@@ -229,6 +235,10 @@ func next(g *game, adj []*player, x float64) *player {
 	nonEmptyShareSize := 0.0
 	if nonEmptyCells > 0.0 {
 		nonEmptyShareSize = float64(nonEmptyWeight / nonEmptyCells)
+		// If fully surrounded, can't become unowned
+		if nonEmptyCells >= 8 {
+			nonEmptyShareSize = float64(1.0 / nonEmptyCells)
+		}
 	}
 	l := 0.0
 	r := 0.0
@@ -241,7 +251,6 @@ func next(g *game, adj []*player, x float64) *player {
 		l = r
 	}
 	return nil // unowned
-
 }
 
 // draw renders all the map entities to the screen via termbox.
@@ -269,6 +278,7 @@ func (g *game) draw() {
 	termbox.SetCell(pl.x, pl.y, '@', pl.color, termbox.ColorBlack)
 
 	termbox.Flush()
+
 }
 
 func (g *game) handleEvent(e termbox.Event) {
@@ -309,7 +319,7 @@ func main() {
 
 mainloop:
 	for {
-		time.Sleep(50 * time.Millisecond) // hacky 20 fps
+		time.Sleep(25 * time.Millisecond) // hacky 40 fps
 
 		// Handle key inputs
 		select {

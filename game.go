@@ -186,8 +186,6 @@ func (g *game) update() {
 			g.next[x][y] = n
 		}
 	}
-
-	g.curr = g.next
 }
 
 func adjString(adj []*player) []string {
@@ -312,7 +310,6 @@ func main() {
 mainloop:
 	for {
 		time.Sleep(50 * time.Millisecond) // hacky 20 fps
-		//time.Sleep(1 * time.Second)
 
 		// Handle key inputs
 		select {
@@ -329,7 +326,12 @@ mainloop:
 
 		g.update()
 		g.draw()
-		g.next = newBlobMap(g.mapW, g.mapH)
+
+		// swap the maps and clear next to prep for next update
+		tmp := g.curr
+		g.curr = g.next
+		g.next = tmp
+		g.next.clear()
 	}
 
 	gameLog.Info("shutting down")

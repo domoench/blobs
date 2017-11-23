@@ -62,20 +62,20 @@ func TestNext(t *testing.T) {
 		assert.Nil(next(g, adj, i))
 	}
 
-	// Even one ajacent player means a nonEmptyWeight probability
-	// of next being nonEmpty
+	// Even one ajacent player means a occupiedWeight probability
+	// of next being occupied
 	p0 := g.players[0]
 	g.curr[0][0] = p0 // UPLEFT of (1,1)
 	adj = adjacent(g, 1, 1)
-	for i := 0.0; i < nonEmptyWeight; i += 0.1 {
+	for i := 0.0; i < occupiedWeight; i += 0.1 {
 		assert.Equal(p0, next(g, adj, i))
 	}
-	// 1.0 - nonEmptyWeight probability of becoming unowned
+	// 1.0 - occupiedWeight probability of becoming unowned
 	for i := 0.7; i < 1.0; i += 0.1 {
 		assert.Nil(next(g, adj, i))
 	}
 
-	// Multiple players divy up the nonEmptyWeight probability
+	// Multiple players divy up the occupiedWeight probability
 	g.addPlayer("testplayer1", '1', termbox.ColorGreen, 0, 0)
 	p1 := g.players[1]
 	g.curr[0][2] = p1 // UPRIGHT of (1,1)

@@ -19,7 +19,7 @@ func init() {
 }
 
 const (
-	nonEmptyWeight = 0.95
+	occupiedWeight = 0.95
 )
 
 // UTILITIES
@@ -35,6 +35,13 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // inMap returns true if the point is within the map's boundaries
@@ -58,6 +65,11 @@ func (p *player) updatePos(x, y int) {
 	if y >= 0 && y < p.g.mapH {
 		p.y = y
 	}
+}
+
+// dist returns the manhattan distance between this player and the given point
+func (p *player) dist(x, y int) int {
+	return abs(p.x-x) + abs(p.y-y)
 }
 
 // Directions: indexes into 9-element adjacent player slices
@@ -152,8 +164,8 @@ func newGame() *game {
 		curr:  newBlobMap(mapWidth, mapHeight),
 		next:  newBlobMap(mapWidth, mapHeight),
 	}
-	g.addPlayer("david", 'D', termbox.ColorGreen, 0, 0)
-	g.addPlayer("enemy", 'E', termbox.ColorBlue, 20, 20)
+	g.addPlayer("david", 'D', termbox.ColorBlue, 0, 0)
+	g.addPlayer("enemy", 'E', termbox.ColorRed, 20, 20)
 
 	// Start players with random blob seeds
 	blobsPerPlayer := 1
@@ -180,14 +192,13 @@ func (g *game) update() {
 	for x := range g.curr {
 		for y := range g.curr[x] {
 			adj := adjacent(g, x, y)
-
-			n := next(g, adj, rand.Float64())
-
+			n := next(g, x, y, adj, rand.Float64())
 			g.next[x][y] = n
 		}
 	}
 }
 
+// adjString returns a slice of names for the given slice of players
 func adjString(adj []*player) []string {
 	names := make([]string, len(adj))
 	for _, p := range adj {
@@ -201,10 +212,10 @@ func adjString(adj []*player) []string {
 }
 
 // next determines what player will own the center cell in the given adjacent
-// slice. x should be a randomly generated float between [0,1), which will be
+// slice. z should be a randomly generated float between [0,1), which will be
 // used as the dice roll.
-func next(g *game, adj []*player, x float64) *player {
-	// Always have 60% chance of not changing at all
+func next(g *game, x, y int, adj []*player, z float64) *player {
+	// Most likely gonna stay the same
 	f := rand.Float64()
 	if f >= 0 && f < 0.90 {
 		return adj[CENTER]
@@ -220,32 +231,42 @@ func next(g *game, adj []*player, x float64) *player {
 	}
 
 	// Note: currently counting the center cell just like the others
-	nonEmptyCells := 0.0
+	occupiedCells := 0.0
 	for _, owner := range adj {
 		if owner != nil {
 			count[m[owner]]++
-			nonEmptyCells++
+			occupiedCells++
 		}
 	}
 
 	// If there are any adjacent non-empty cells, the current cell has a
-	// nonEmptyWeight chance of becoming non-empty (divided among the adjacent players
+	// occupiedWeight chance of becoming non-empty (divided among the adjacent players
 	// in proportion to their representation).
-	// TODO give more weight towards remaining the same
-	nonEmptyShareSize := 0.0
-	if nonEmptyCells > 0.0 {
-		nonEmptyShareSize = float64(nonEmptyWeight / nonEmptyCells)
+	occupiedShareSize := 0.0
+	if occupiedCells > 0.0 {
+		occupiedShareSize = float64(occupiedWeight / occupiedCells)
 		// If fully surrounded, can't become unowned
-		if nonEmptyCells >= 8 {
-			nonEmptyShareSize = float64(1.0 / nonEmptyCells)
+		if occupiedCells >= 8 {
+			occupiedShareSize = float64(1.0 / occupiedCells)
 		}
 	}
+
+	// TODO Calculate boost factor based on proximity to player
+	// eg x1.8 if close to player, and x0.2 for all owned by different players
+	// TODO should iterate through all players so if 2 players are close the net result is as if no players were near
+	var closePlayers []*player
+	for _, p := range g.players {
+		if p.dist(x, y) < 5 {
+			closePlayers = append(closePlayers, p)
+		}
+	}
+
 	l := 0.0
 	r := 0.0
 	// TODO there's probably a smarter O(1) way to do this
 	for i := 0; i < len(g.players); i++ {
-		r = l + count[i]*nonEmptyShareSize
-		if x >= l && x < r {
+		r = l + count[i]*occupiedShareSize
+		if z >= l && z < r {
 			return g.players[i]
 		}
 		l = r

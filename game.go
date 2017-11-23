@@ -221,53 +221,33 @@ func next(g *game, x, y int, adj []*player, z float64) *player {
 		return adj[CENTER]
 	}
 
-	// TODO wasteful to allocate these data structs on every call, they're reusable
-	// To count the number of adjacent cells owned by each player.
-	count := make([]float64, len(g.players))
-	// Map from player references to their index
-	m := make(map[*player]int)
-	for i, pl := range g.players {
-		m[pl] = i
+	// 1 point of representation for each adjacent player. Treat unoccupied like a player.
+	weight := make(map[*player]float64)
+	for _, p := range adj {
+		weight[p] += 1
 	}
 
-	// Note: currently counting the center cell just like the others
-	occupiedCells := 0.0
-	for _, owner := range adj {
-		if owner != nil {
-			count[m[owner]]++
-			occupiedCells++
-		}
+	// reduce the influence of unoccupied
+	weight[nil] *= 0.05
+
+	// Normalize all weights so they add to 1.0
+	totalWeight := 0.0
+	for _, w := range weight {
+		totalWeight += w
+	}
+	for p, w := range weight {
+		weight[p] = w / totalWeight
 	}
 
-	// If there are any adjacent non-empty cells, the current cell has a
-	// occupiedWeight chance of becoming non-empty (divided among the adjacent players
-	// in proportion to their representation).
-	occupiedShareSize := 0.0
-	if occupiedCells > 0.0 {
-		occupiedShareSize = float64(occupiedWeight / occupiedCells)
-		// If fully surrounded, can't become unowned
-		if occupiedCells >= 8 {
-			occupiedShareSize = float64(1.0 / occupiedCells)
-		}
-	}
-
-	// TODO Calculate boost factor based on proximity to player
-	// eg x1.8 if close to player, and x0.2 for all owned by different players
-	// TODO should iterate through all players so if 2 players are close the net result is as if no players were near
-	var closePlayers []*player
-	for _, p := range g.players {
-		if p.dist(x, y) < 5 {
-			closePlayers = append(closePlayers, p)
-		}
-	}
-
+	// Translate weights into ranges that span [0,1) and use z to determine the outcome
 	l := 0.0
 	r := 0.0
 	// TODO there's probably a smarter O(1) way to do this
 	for i := 0; i < len(g.players); i++ {
-		r = l + count[i]*occupiedShareSize
+		p := g.players[i]
+		r = l + weight[p]
 		if z >= l && z < r {
-			return g.players[i]
+			return p
 		}
 		l = r
 	}

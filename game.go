@@ -221,10 +221,22 @@ func next(g *game, x, y int, adj []*player, z float64) *player {
 		return adj[CENTER]
 	}
 
-	// 1 point of representation for each adjacent player. Treat unoccupied like a player.
+	nearPlayers := make(map[*player]bool)
+	for _, p := range g.players {
+		if p.dist(x, y) < 8 {
+			nearPlayers[p] = true
+		}
+	}
+
 	weight := make(map[*player]float64)
 	for _, p := range adj {
+		// 1 point of representation for each adjacent player. Treat unoccupied like a player.
 		weight[p] += 1
+
+		// increase the influence of occupied cells when their player is near
+		if nearPlayers[p] {
+			weight[p] += 7
+		}
 	}
 
 	// reduce the influence of unoccupied
@@ -275,8 +287,9 @@ func (g *game) draw() {
 	}
 
 	// Draw player into back buffer
-	pl := g.players[0] // TODO
-	termbox.SetCell(pl.x, pl.y, '@', pl.color, termbox.ColorBlack)
+	for _, pl := range g.players {
+		termbox.SetCell(pl.x, pl.y, '@', pl.color, termbox.ColorBlack)
+	}
 
 	termbox.Flush()
 
@@ -284,7 +297,7 @@ func (g *game) draw() {
 
 func (g *game) handleEvent(e termbox.Event) {
 	p := g.players[0] // TODO eventually we'll have multiple players, and only one will be the local controller
-	gameLog.Debug("handling key event", "player", p.name)
+	// gameLog.Debug("handling key event", "player", p.name)
 	switch e.Key {
 	case termbox.KeyArrowRight:
 		gameLog.Debug("right key")
@@ -328,7 +341,6 @@ mainloop:
 			if e.Key == g.input.endKey {
 				break mainloop
 			} else if e.Type == termbox.EventKey {
-				gameLog.Debug("received input event")
 				g.handleEvent(e)
 			}
 		default:
